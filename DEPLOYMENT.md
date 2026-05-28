@@ -20,7 +20,19 @@
 
 Copy `.env.example` to `.env` and set every value.
 
-`DASHBOARD_ADMIN_TOKEN` should be a long random password. The dashboard API rejects every request that does not include this token.
+`DASHBOARD_ADMIN_TOKEN` should be a long random password. This is the global owner token and can create communities plus community-scoped dashboard users.
+
+Required MySQL values:
+
+```env
+MYSQL_HOST=
+MYSQL_PORT=3306
+MYSQL_USER=
+MYSQL_PASSWORD=
+MYSQL_DATABASE=TitanCore
+DEFAULT_COMMUNITY_SLUG=default
+DEFAULT_COMMUNITY_NAME=TitanCore Default Community
+```
 
 ## Path of Titans RCON
 
@@ -47,19 +59,19 @@ Use `Format="General"` so TitanCore can process the events:
 [ServerWebhooks]
 bEnabled=true
 Format="General"
-PlayerLogin="https://your-domain.com/pot/webhooks/player-login"
-PlayerLogout="https://your-domain.com/pot/webhooks/player-logout"
-PlayerKilled="https://your-domain.com/pot/webhooks/player-killed"
-PlayerReport="https://your-domain.com/pot/webhooks/player-report"
-PlayerChat="https://your-domain.com/pot/webhooks/player-chat"
-PlayerCommand="https://your-domain.com/pot/webhooks/player-command"
-PlayerPurchase="https://your-domain.com/pot/webhooks/player-purchase"
-PlayerHack="https://your-domain.com/pot/webhooks/player-hack"
-ServerStart="https://your-domain.com/pot/webhooks/server-start"
-ServerRestart="https://your-domain.com/pot/webhooks/server-restart"
-ServerError="https://your-domain.com/pot/webhooks/server-error"
-SecurityAlert="https://your-domain.com/pot/webhooks/security-alert"
-AdminCommand="https://your-domain.com/pot/webhooks/admin-command"
+PlayerLogin="https://your-domain.com/pot/webhooks/community/default/player-login"
+PlayerLogout="https://your-domain.com/pot/webhooks/community/default/player-logout"
+PlayerKilled="https://your-domain.com/pot/webhooks/community/default/player-killed"
+PlayerReport="https://your-domain.com/pot/webhooks/community/default/player-report"
+PlayerChat="https://your-domain.com/pot/webhooks/community/default/player-chat"
+PlayerCommand="https://your-domain.com/pot/webhooks/community/default/player-command"
+PlayerPurchase="https://your-domain.com/pot/webhooks/community/default/player-purchase"
+PlayerHack="https://your-domain.com/pot/webhooks/community/default/player-hack"
+ServerStart="https://your-domain.com/pot/webhooks/community/default/server-start"
+ServerRestart="https://your-domain.com/pot/webhooks/community/default/server-restart"
+ServerError="https://your-domain.com/pot/webhooks/community/default/server-error"
+SecurityAlert="https://your-domain.com/pot/webhooks/community/default/security-alert"
+AdminCommand="https://your-domain.com/pot/webhooks/community/default/admin-command"
 ```
 
 ## Local Run
@@ -88,6 +100,6 @@ docker run --env-file .env -p 3000:3000 -v titancore-data:/app/data titancore-po
 
 - Put the dashboard behind HTTPS.
 - Firewall the RCON port and use `IPAllowList`.
-- Back up the `data/` volume daily.
-- Replace the JSON store with Postgres before running a high-volume public economy.
+- Back up the MySQL database daily.
 - Test every configured RCON command template on a staging server before staff use it.
+- Use one dashboard token per staff member or community admin, then rotate tokens when staff leave.

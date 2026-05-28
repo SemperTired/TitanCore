@@ -1,6 +1,6 @@
 const { PermissionFlagsBits, SlashCommandBuilder } = require("discord.js");
+const { getCommunityIdForGuild, query } = require("../../db/database");
 const { addCoins, buyItem, getBalance, getLinkedAgid } = require("../../systems/economy");
-const { getStore } = require("../../db/database");
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -36,21 +36,23 @@ module.exports = {
     ),
 
   async execute(interaction) {
+    const communityId = await getCommunityIdForGuild(interaction.guildId);
     const subcommand = interaction.options.getSubcommand();
 
     if (subcommand === "balance") {
-      const agid = getLinkedAgid(interaction.user.id);
+      const agid = await getLinkedAgid({ communityId, discordId: interaction.user.id });
       if (!agid) {
         return interaction.reply({ ephemeral: true, content: "You need to run `/link` and be verified first." });
       }
 
-      return interaction.reply({ ephemeral: true, content: `Balance: ${getBalance(agid)} coins.` });
+      return interaction.reply({ ephemeral: true, content: `Balance: ${await getBalance(communityId, agid)} coins.` });
     }
 
     if (subcommand === "shop") {
-      const items = getStore().shopItems
-        .filter(item => item.enabled === 1)
-        .sort((a, b) => a.price - b.price);
+      const items = await query(
+        "SELECT id, name, price FROM shop_items WHERE community_id = :communityId AND enabled = 1 ORDER BY price ASC",
+        { communityId }
+      );
       const lines = items.map(item => `#${item.id} - ${item.name}: ${item.price} coins`);
       return interaction.reply({ ephemeral: true, content: lines.length ? lines.join("\n") : "The shop is empty." });
     }
@@ -58,7 +60,7 @@ module.exports = {
     if (subcommand === "buy") {
       await interaction.deferReply({ ephemeral: true });
       const itemId = interaction.options.getInteger("item_id");
-      const result = await buyItem({ discordId: interaction.user.id, itemId });
+      const result = await buyItem({ communityId, discordId: interaction.user.id, itemId });
       return interaction.editReply(`Purchased ${result.item.name}. New balance: ${result.balance} coins.`);
     }
 
@@ -67,7 +69,8 @@ module.exports = {
         return interaction.reply({ ephemeral: true, content: "You need Manage Server permission to add coins." });
       }
 
-      const balance = addCoins({
+      const balance = await addCoins({
+        communityId,
         agid: interaction.options.getString("agid"),
         amount: interaction.options.getInteger("amount"),
         reason: interaction.options.getString("reason"),

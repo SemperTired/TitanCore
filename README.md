@@ -1,6 +1,6 @@
 # Path of Titans Ecosystem Bot
 
-A Node.js starter bot for Path of Titans community servers. It combines Discord slash commands, Source RCON, Path of Titans webhooks, economy storage, moderation cases, analytics ingestion, and event infrastructure. The starter uses a local JSON store so it installs cleanly on Windows; move to Postgres before running a large production economy.
+A Node.js starter bot for Path of Titans community servers. It combines Discord slash commands, Source RCON, Path of Titans webhooks, MySQL-backed economy storage, moderation cases, analytics ingestion, event infrastructure, and a multi-community dashboard.
 
 ## PotBot-Style Feature Coverage
 
@@ -14,6 +14,7 @@ A Node.js starter bot for Path of Titans community servers. It combines Discord 
 - Moderation cases, reports, security alerts, and audit logs.
 - Admin dashboard at `/dashboard` with token authentication.
 - Dockerfile and deployment checklist.
+- MySQL tenant model so each community only sees and modifies its own player/economy/server data.
 
 ## First Run
 
@@ -24,8 +25,8 @@ A Node.js starter bot for Path of Titans community servers. It combines Discord 
    npm install
    ```
 
-3. Copy `.env.example` to `.env` and fill in Discord, RCON, channel, and webhook settings.
-4. Initialize the database:
+3. Copy `.env.example` to `.env` and fill in Discord, RCON, MySQL, channel, and webhook settings.
+4. Create the MySQL database, tables, default community, default settings, and seed records:
 
    ```bash
    npm run db:init
@@ -114,6 +115,27 @@ SecurityAlert="https://your-domain.com/pot/webhooks/security-alert"
 - Moderation: inspect cases, reports, and alerts.
 - Server: run presets or raw RCON.
 - Settings: update shop, banking, link verification, and command prefix settings.
+- Communities: global-owner tools for creating communities and issuing community-scoped dashboard tokens.
+
+## Multi-Community Access
+
+The dashboard uses bearer-token authentication.
+
+- `DASHBOARD_ADMIN_TOKEN` is the global owner token.
+- Global owners can create communities from the dashboard.
+- Each community can have one or more dashboard users in `dashboard_users`.
+- Every player, wallet, shop item, teleport, command, dino profile, event, moderation case, webhook event, and audit log is scoped by `community_id`.
+- Community-specific webhooks can use:
+
+  ```txt
+  https://your-domain.com/pot/webhooks/community/{community-slug}/{event-name}
+  ```
+
+  Example:
+
+  ```txt
+  https://your-domain.com/pot/webhooks/community/default/player-login
+  ```
 
 ## Next Implementation Targets
 
@@ -121,4 +143,4 @@ SecurityAlert="https://your-domain.com/pot/webhooks/security-alert"
 - Add role-based command allowlists beyond Discord default permissions.
 - Add a web dashboard for shop, cases, economy ledger, and event management.
 - Add scheduled engagement jobs: daily rewards, recurring announcements, event reminders.
-- Move storage to Postgres for large production servers.
+- Add billing/subscription controls if you plan to host this as a paid multi-community service.

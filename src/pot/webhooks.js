@@ -1,6 +1,7 @@
 const { config } = require("../config");
-const { getStore, nextId, saveStore } = require("../db/database");
+const { execute, getDefaultCommunityId, one } = require("../db/database");
 const { runCustomChatCommand } = require("../systems/potbotActions");
+const { audit } = require("../systems/audit");
 const { upsertPlayerProfile } = require("../systems/players");
 
 function findAgid(payload) {
@@ -19,57 +20,81 @@ function findAlderonUsername(payload) {
   return payload?.playerName || payload?.PlayerName || payload?.username || payload?.Username || "";
 }
 
-async function handlePotWebhook(eventType, payload, client) {
-  const data = getStore();
+async function handlePotWebhook(eventType, payload, client, communityId = null) {
+  const resolvedCommunityId = communityId || await getDefaultCommunityId();
   const agid = findAgid(payload);
 
-  data.potEvents.push({
-    id: nextId("potEvents"),
-    event_type: eventType,
-    agid,
-    payload_json: JSON.stringify(payload),
-    created_at: new Date().toISOString(),
-  });
+  await execute(
+    `INSERT INTO pot_events (community_id, event_type, agid, payload_json)
+     VALUES (:communityId, :eventType, :agid, CAST(:payload AS JSON))`,
+    {
+      communityId: resolvedCommunityId,
+      eventType,
+      agid,
+      payload: JSON.stringify(payload),
+    }
+  );
 
   if (["player-report", "player-hack", "server-error", "security-alert"].includes(eventType)) {
     await notifyStaff(eventType, payload, client);
   }
 
   if (eventType === "player-login" && agid) {
-    if (!data.wallets.some(wallet => wallet.agid === agid)) {
-      data.wallets.push({ agid, balance: 0, updated_at: new Date().toISOString() });
-    }
-    upsertPlayerProfile({ agid, alderonUsername: findAlderonUsername(payload) });
+    await upsertPlayerProfile({
+      communityId: resolvedCommunityId,
+      agid,
+      alderonUsername: findAlderonUsername(payload),
+    });
   }
 
   if (["player-chat", "player-command"].includes(eventType)) {
-    await handlePlayerMessage(eventType, payload);
+    await handlePlayerMessage(resolvedCommunityId, eventType, payload);
   }
-
-  saveStore();
 }
 
-async function handlePlayerMessage(eventType, payload) {
-  const data = getStore();
+async function handlePlayerMessage(communityId, eventType, payload) {
+  const settings = await getSettings(communityId);
   const agid = findAgid(payload);
   const message = findMessage(payload).trim();
   if (!message) return;
 
-  if (data.settings.autoVerifyLinkCodes) {
-    const pending = data.playerLinks.find(link => link.verification_code && message.includes(link.verification_code));
+  if (settings.autoVerifyLinkCodes) {
+    const pending = await one(
+      `SELECT * FROM player_links
+       WHERE community_id = :communityId
+         AND verification_code IS NOT NULL
+         AND INSTR(:message, verification_code) > 0
+       LIMIT 1`,
+      { communityId, message }
+    );
+
     if (pending) {
-      pending.verified = 1;
-      pending.verification_code = null;
-      if (agid) pending.agid = agid;
-      upsertPlayerProfile({ agid: pending.agid, discordId: pending.discord_id, alderonUsername: findAlderonUsername(payload) });
+      await execute(
+        `UPDATE player_links
+         SET verified = 1, verification_code = NULL, agid = :agid
+         WHERE community_id = :communityId AND discord_id = :discordId`,
+        {
+          communityId,
+          agid: agid || pending.agid,
+          discordId: pending.discord_id,
+        }
+      );
+      await upsertPlayerProfile({
+        communityId,
+        agid: agid || pending.agid,
+        discordId: pending.discord_id,
+        alderonUsername: findAlderonUsername(payload),
+      });
+      await audit({ communityId, actor: "webhook", action: "player.autoVerify", target: agid || pending.agid });
     }
   }
 
-  const prefix = data.settings.commandPrefix || "!";
+  const prefix = settings.commandPrefix || "!";
   if (!message.startsWith(prefix)) return;
 
   const trigger = message.split(/\s+/)[0];
   await runCustomChatCommand({
+    communityId,
     trigger,
     discordId: findDiscordId(payload),
     agidFromPayload: agid,
@@ -78,16 +103,24 @@ async function handlePlayerMessage(eventType, payload) {
       eventType,
       playerName: findAlderonUsername(payload),
     },
-  }).catch(error => {
-    data.auditLogs.push({
-      id: nextId("auditLogs"),
-      actor: agid || "in-game",
-      action: "customCommand.failed",
-      target: trigger,
-      details: { error: error.message },
-      created_at: new Date().toISOString(),
-    });
-  });
+  }).catch(error => audit({
+    communityId,
+    actor: agid || "in-game",
+    action: "customCommand.failed",
+    target: trigger,
+    details: { error: error.message },
+  }));
+}
+
+async function getSettings(communityId) {
+  const rows = await require("../db/database").query(
+    "SELECT setting_key, setting_value FROM community_settings WHERE community_id = :communityId",
+    { communityId }
+  );
+  return Object.fromEntries(rows.map(row => [
+    row.setting_key,
+    row.setting_value === "true" ? true : row.setting_value === "false" ? false : row.setting_value,
+  ]));
 }
 
 async function notifyStaff(eventType, payload, client) {

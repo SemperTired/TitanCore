@@ -1,5 +1,5 @@
 const { SlashCommandBuilder } = require("discord.js");
-const { getStore } = require("../../db/database");
+const { getCommunityIdForGuild, query } = require("../../db/database");
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -16,26 +16,31 @@ module.exports = {
     ),
 
   async execute(interaction) {
+    const communityId = await getCommunityIdForGuild(interaction.guildId);
     const subcommand = interaction.options.getSubcommand();
 
     if (subcommand === "today") {
-      const today = new Date().toISOString().slice(0, 10);
-      const counts = new Map();
-      for (const event of getStore().potEvents) {
-        if (!event.created_at.startsWith(today)) continue;
-        counts.set(event.event_type, (counts.get(event.event_type) || 0) + 1);
-      }
-      const lines = [...counts.entries()]
-        .sort((a, b) => b[1] - a[1])
-        .map(([eventType, count]) => `${eventType}: ${count}`);
+      const rows = await query(
+        `SELECT event_type, COUNT(*) AS count
+         FROM pot_events
+         WHERE community_id = :communityId AND DATE(created_at) = UTC_DATE()
+         GROUP BY event_type
+         ORDER BY count DESC`,
+        { communityId }
+      );
+      const lines = rows.map(row => `${row.event_type}: ${row.count}`);
       return interaction.reply({ ephemeral: true, content: lines.length ? lines.join("\n") : "No events recorded today." });
     }
 
     const agid = interaction.options.getString("agid");
-    const rows = getStore().potEvents
-      .filter(event => event.agid === agid)
-      .sort((a, b) => b.id - a.id)
-      .slice(0, 10);
+    const rows = await query(
+      `SELECT event_type, created_at
+       FROM pot_events
+       WHERE community_id = :communityId AND agid = :agid
+       ORDER BY id DESC
+       LIMIT 10`,
+      { communityId, agid }
+    );
     const lines = rows.map(row => `${row.created_at}: ${row.event_type}`);
     return interaction.reply({ ephemeral: true, content: lines.length ? lines.join("\n") : "No events found for that player." });
   },

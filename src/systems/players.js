@@ -1,59 +1,47 @@
-const { getStore, nextId, saveStore } = require("../db/database");
+const { execute, one } = require("../db/database");
 const { audit } = require("./audit");
 
-function upsertPlayerProfile({ agid, alderonUsername = "", discordId = "", notes = "" }) {
-  const data = getStore();
-  let profile = data.playerProfiles.find(row => row.agid === agid);
+async function upsertPlayerProfile({ communityId, agid, alderonUsername = "", discordId = "", notes = "" }) {
+  await execute(
+    `INSERT INTO player_profiles (community_id, agid, alderon_username, discord_id, notes, flags)
+     VALUES (:communityId, :agid, :alderonUsername, :discordId, :notes, JSON_ARRAY())
+     ON DUPLICATE KEY UPDATE
+       alderon_username = COALESCE(NULLIF(VALUES(alderon_username), ''), alderon_username),
+       discord_id = COALESCE(NULLIF(VALUES(discord_id), ''), discord_id),
+       notes = COALESCE(NULLIF(VALUES(notes), ''), notes)`,
+    { communityId, agid, alderonUsername, discordId, notes }
+  );
 
-  if (!profile) {
-    profile = {
-      id: nextId("playerProfiles"),
-      agid,
-      alderon_username: alderonUsername,
-      discord_id: discordId,
-      notes,
-      flags: [],
-      last_seen_at: null,
-      created_at: new Date().toISOString(),
-    };
-    data.playerProfiles.push(profile);
-  } else {
-    profile.alderon_username = alderonUsername || profile.alderon_username;
-    profile.discord_id = discordId || profile.discord_id;
-    profile.notes = notes || profile.notes;
-  }
+  await execute(
+    `INSERT IGNORE INTO wallets (community_id, agid, balance)
+     VALUES (:communityId, :agid, 0)`,
+    { communityId, agid }
+  );
 
-  if (!data.wallets.some(wallet => wallet.agid === agid)) {
-    data.wallets.push({ agid, balance: 0, updated_at: new Date().toISOString() });
-  }
-
-  saveStore();
-  return profile;
+  return one(
+    "SELECT * FROM player_profiles WHERE community_id = :communityId AND agid = :agid",
+    { communityId, agid }
+  );
 }
 
-function linkPlayer({ discordId, agid, verified = false, actor = "dashboard" }) {
-  const data = getStore();
-  let link = data.playerLinks.find(row => row.discord_id === discordId);
+async function linkPlayer({ communityId, discordId, agid, verified = false, actor = "dashboard" }) {
+  await execute(
+    `INSERT INTO player_links (community_id, discord_id, agid, verified, verification_code)
+     VALUES (:communityId, :discordId, :agid, :verified, NULL)
+     ON DUPLICATE KEY UPDATE
+       agid = VALUES(agid),
+       verified = VALUES(verified),
+       verification_code = NULL`,
+    { communityId, discordId, agid, verified: verified ? 1 : 0 }
+  );
 
-  if (!link) {
-    link = {
-      discord_id: discordId,
-      agid,
-      verified: verified ? 1 : 0,
-      verification_code: null,
-      created_at: new Date().toISOString(),
-    };
-    data.playerLinks.push(link);
-  } else {
-    link.agid = agid;
-    link.verified = verified ? 1 : 0;
-    link.verification_code = null;
-  }
+  await upsertPlayerProfile({ communityId, agid, discordId });
+  await audit({ communityId, actor, action: "player.link", target: agid, details: { discordId, verified } });
 
-  upsertPlayerProfile({ agid, discordId });
-  audit({ actor, action: "player.link", target: agid, details: { discordId, verified } });
-  saveStore();
-  return link;
+  return one(
+    "SELECT * FROM player_links WHERE community_id = :communityId AND discord_id = :discordId",
+    { communityId, discordId }
+  );
 }
 
 module.exports = { linkPlayer, upsertPlayerProfile };

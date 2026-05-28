@@ -8,7 +8,6 @@ const { createDashboardRouter } = require("./dashboard/routes");
 const { handlePotWebhook } = require("./pot/webhooks");
 
 requireConfig();
-initDb();
 
 const client = new Client({
   intents: [
@@ -47,13 +46,37 @@ app.post("/pot/webhooks/:event", async (req, res, next) => {
   }
 });
 
+app.post("/pot/webhooks/community/:slug/:event", async (req, res, next) => {
+  try {
+    const { one } = require("./db/database");
+    const community = await one("SELECT id FROM communities WHERE slug = :slug", { slug: req.params.slug });
+    if (!community) {
+      res.status(404).json({ error: "Community not found" });
+      return;
+    }
+    await handlePotWebhook(req.params.event, req.body, client, community.id);
+    res.sendStatus(204);
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.use((error, _req, res, _next) => {
   console.error(error);
   res.status(500).json({ error: "Internal server error" });
 });
 
-app.listen(config.webhookPort, () => {
-  console.log(`Webhook server listening on port ${config.webhookPort}`);
-});
+async function main() {
+  await initDb();
 
-client.login(config.discordToken);
+  app.listen(config.webhookPort, () => {
+    console.log(`Webhook server listening on port ${config.webhookPort}`);
+  });
+
+  await client.login(config.discordToken);
+}
+
+main().catch(error => {
+  console.error(error);
+  process.exitCode = 1;
+});

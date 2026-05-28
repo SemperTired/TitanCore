@@ -1,5 +1,5 @@
 const { PermissionFlagsBits, SlashCommandBuilder } = require("discord.js");
-const { getStore, nextId, saveStore } = require("../../db/database");
+const { execute, getCommunityIdForGuild, one, query } = require("../../db/database");
 const { sendRcon } = require("../../pot/rcon");
 
 module.exports = {
@@ -28,44 +28,49 @@ module.exports = {
     ),
 
   async execute(interaction) {
+    const communityId = await getCommunityIdForGuild(interaction.guildId);
     const subcommand = interaction.options.getSubcommand();
 
     if (subcommand === "create") {
-      const data = getStore();
-      const id = nextId("events");
-      data.events.push({
-        id,
-        name: interaction.options.getString("name"),
-        type: interaction.options.getString("type"),
-        starts_at: new Date().toISOString(),
-        ends_at: null,
-        status: "scheduled",
-        config_json: "{}",
-      });
-      saveStore();
+      const result = await execute(
+        `INSERT INTO events (community_id, name, type, starts_at, config_json)
+         VALUES (:communityId, :name, :type, UTC_TIMESTAMP(), JSON_OBJECT())`,
+        {
+          communityId,
+          name: interaction.options.getString("name"),
+          type: interaction.options.getString("type"),
+        }
+      );
 
-      return interaction.reply({ ephemeral: true, content: `Event created with ID ${id}.` });
+      return interaction.reply({ ephemeral: true, content: `Event created with ID ${result.insertId}.` });
     }
 
     if (subcommand === "start") {
       await interaction.deferReply({ ephemeral: true });
       const eventId = interaction.options.getInteger("event_id");
-      const data = getStore();
-      const event = data.events.find(row => row.id === eventId);
+      const event = await one(
+        "SELECT * FROM events WHERE community_id = :communityId AND id = :eventId",
+        { communityId, eventId }
+      );
       if (!event) return interaction.editReply("Event not found.");
 
-      event.status = "active";
-      event.starts_at = new Date().toISOString();
-      saveStore();
+      await execute(
+        "UPDATE events SET status = 'active', starts_at = UTC_TIMESTAMP() WHERE community_id = :communityId AND id = :eventId",
+        { communityId, eventId }
+      );
       await sendRcon(`announce Event started: ${event.name}`);
       return interaction.editReply(`Event ${event.name} is now active.`);
     }
 
     const eventId = interaction.options.getInteger("event_id");
-    const rows = getStore().eventScores
-      .filter(score => score.event_id === eventId)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 10);
+    const rows = await query(
+      `SELECT agid, score
+       FROM event_scores
+       WHERE community_id = :communityId AND event_id = :eventId
+       ORDER BY score DESC
+       LIMIT 10`,
+      { communityId, eventId }
+    );
     const lines = rows.map((row, index) => `${index + 1}. ${row.agid}: ${row.score}`);
     return interaction.reply({ ephemeral: true, content: lines.length ? lines.join("\n") : "No scores yet." });
   },

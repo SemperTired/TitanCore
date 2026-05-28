@@ -1,5 +1,5 @@
 const { PermissionFlagsBits, SlashCommandBuilder } = require("discord.js");
-const { getStore, nextId, saveStore } = require("../../db/database");
+const { execute, getCommunityIdForGuild, query } = require("../../db/database");
 const { sendRcon } = require("../../pot/rcon");
 
 module.exports = {
@@ -30,31 +30,35 @@ module.exports = {
 
   async execute(interaction) {
     await interaction.deferReply({ ephemeral: true });
+    const communityId = await getCommunityIdForGuild(interaction.guildId);
     const subcommand = interaction.options.getSubcommand();
     const agid = interaction.options.getString("agid");
 
     if (subcommand === "history") {
-      const cases = getStore().moderationCases
-        .filter(row => row.agid === agid)
-        .sort((a, b) => b.id - a.id)
-        .slice(0, 10);
+      const cases = await query(
+        `SELECT id, type, reason, created_at
+         FROM moderation_cases
+         WHERE community_id = :communityId AND agid = :agid
+         ORDER BY id DESC
+         LIMIT 10`,
+        { communityId, agid }
+      );
       const lines = cases.map(row => `#${row.id} ${row.type} ${row.created_at}: ${row.reason}`);
       return interaction.editReply(lines.length ? lines.join("\n") : "No moderation history found.");
     }
 
     const reason = interaction.options.getString("reason").replaceAll("\n", " ").slice(0, 180);
-    const data = getStore();
-    data.moderationCases.push({
-      id: nextId("moderationCases"),
-      agid,
-      discord_id: null,
-      type: subcommand,
-      reason,
-      moderator_discord_id: interaction.user.id,
-      expires_at: null,
-      created_at: new Date().toISOString(),
-    });
-    saveStore();
+    await execute(
+      `INSERT INTO moderation_cases (community_id, agid, type, reason, moderator_discord_id)
+       VALUES (:communityId, :agid, :type, :reason, :moderatorDiscordId)`,
+      {
+        communityId,
+        agid,
+        type: subcommand,
+        reason,
+        moderatorDiscordId: interaction.user.id,
+      }
+    );
 
     if (subcommand === "kick") {
       const response = await sendRcon(`kick ${agid} ${reason}`);

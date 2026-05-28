@@ -17,6 +17,7 @@ const tabs = [
   ["moderation", "Moderation", "Cases and reports"],
   ["server", "Server", "RCON and presets"],
   ["settings", "Settings", "Bot configuration"],
+  ["communities", "Communities", "Owner tools and access tokens"],
 ];
 
 const view = document.querySelector("#view");
@@ -61,6 +62,7 @@ function icon(id) {
     moderation: "09",
     server: "10",
     settings: "11",
+    communities: "12",
   }[id] || "--";
 }
 
@@ -116,6 +118,7 @@ function render() {
     moderation: renderModeration,
     server: renderServer,
     settings: renderSettings,
+    communities: renderCommunities,
   };
 
   renderers[state.tab]();
@@ -289,6 +292,60 @@ function renderSettings() {
     data.bankEnabled = data.bankEnabled === "true";
     data.autoVerifyLinkCodes = data.autoVerifyLinkCodes === "true";
     await api("/api/settings", { method: "PATCH", body: JSON.stringify(data) });
+    await load();
+  });
+}
+
+async function renderCommunities() {
+  view.innerHTML = `<div class="panel"><div class="panel-body status">Loading communities...</div></div>`;
+  let communities = [];
+  try {
+    communities = await api("/api/admin/communities");
+  } catch (error) {
+    view.innerHTML = `<div class="panel"><div class="panel-body status">${escapeHtml(error.message)}. Owner token required.</div></div>`;
+    return;
+  }
+
+  view.innerHTML = `
+    <div class="grid two-col">
+      ${tablePanel("Communities", communities, ["id", "slug", "name", "discord_guild_id", "created_at"])}
+      <div class="grid">
+        <div class="panel">
+          <div class="panel-header"><h3>Create Community</h3></div>
+          <div class="panel-body">
+            <form id="communityForm" class="form-grid">
+              ${input("slug", "Slug")}
+              ${input("name", "Name")}
+              ${input("discordGuildId", "Discord Guild ID")}
+              ${input("dashboardLabel", "Dashboard User Label")}
+              ${input("dashboardToken", "Dashboard Token", "password", "wide")}
+              <button class="button primary wide">Create Community</button>
+            </form>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-header"><h3>Create Dashboard User</h3></div>
+          <div class="panel-body">
+            <form id="dashboardUserForm" class="form-grid">
+              ${input("communityId", "Community ID", "number")}
+              ${input("label", "Label")}
+              <label>Role<select name="role"><option value="admin">Admin</option><option value="owner">Owner</option><option value="moderator">Moderator</option><option value="viewer">Viewer</option></select></label>
+              ${input("dashboardToken", "Dashboard Token", "password", "wide")}
+              <button class="button primary wide">Create Access Token</button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  bindJsonForm("#communityForm", "/api/admin/communities", "POST");
+  document.querySelector("#dashboardUserForm").addEventListener("submit", async event => {
+    event.preventDefault();
+    const data = formData(event.currentTarget);
+    if (data.communityId) data.communityId = Number(data.communityId);
+    else delete data.communityId;
+    await api("/api/admin/dashboard-users", { method: "POST", body: JSON.stringify(data) });
     await load();
   });
 }

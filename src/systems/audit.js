@@ -1,21 +1,17 @@
-const { getStore, nextId, saveStore } = require("../db/database");
+const { execute } = require("../db/database");
 
-function audit({ actor = "system", action, target = null, details = {} }) {
-  const data = getStore();
-  data.auditLogs.push({
-    id: nextId("auditLogs"),
-    actor,
-    action,
-    target,
-    details,
-    created_at: new Date().toISOString(),
-  });
-
-  if (data.auditLogs.length > 1000) {
-    data.auditLogs = data.auditLogs.slice(-1000);
-  }
-
-  saveStore();
+async function audit({ communityId, actor = "system", action, target = null, details = {} }) {
+  await execute(
+    `INSERT INTO audit_logs (community_id, actor, action, target, details_json)
+     VALUES (:communityId, :actor, :action, :target, CAST(:details AS JSON))`,
+    {
+      communityId,
+      actor,
+      action,
+      target,
+      details: JSON.stringify(details),
+    }
+  );
 }
 
 module.exports = { audit };
