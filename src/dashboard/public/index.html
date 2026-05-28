@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>TitanCore Dashboard</title>
+    <link rel="stylesheet" href="/dashboard/styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">TC</div>
+          <div>
+            <h1>TitanCore</h1>
+            <p>Path of Titans Ops</p>
+          </div>
+        </div>
+        <nav id="tabs" class="tabs"></nav>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div>
+            <h2 id="pageTitle">Overview</h2>
+            <p id="pageMeta">Live server operations</p>
+          </div>
+          <div class="auth-box">
+            <input id="tokenInput" type="password" placeholder="Dashboard token">
+            <button id="saveToken" class="button primary">Unlock</button>
+          </div>
+        </header>
+
+        <section id="view" class="view"></section>
+      </main>
+    </div>
+
+    <template id="statCard">
+      <article class="stat-card">
+        <span></span>
+        <strong></strong>
+      </article>
+    </template>
+
+    <script src="/dashboard/app.js"></script>
+  </body>
+</html>
